@@ -54,7 +54,7 @@ table{width:100%;border-collapse:collapse;margin-top:10px}th,td{text-align:left;
     <div class="step"><span class="num">3</span><span>Credential IDから紐付いたユーザーを特定</span></div>
     <div class="step"><span class="num">4</span><span>この端末の現在時刻を記録（本番はサーバー時刻）</span></div>
     <button class="good" id="attBtn" onclick="authenticateAttendance()">出社認証</button>
-    <div id="authStatus" class="status">先にスマホを登録してください。</div>
+    <div id="authStatus" class="status">「出社認証」を押すとPasskeyで認証します。（未登録の場合は先に①で登録）</div>
   </section>
 
   <section class="card">
@@ -82,6 +82,14 @@ function randomBytes(n=32){ return crypto.getRandomValues(new Uint8Array(n)); }
 function load(){ return JSON.parse(localStorage.getItem(STORAGE_KEY)||"null") || {credentialId:null,userId:null,displayName:null,userHandle:null,logs:[]}; }
 function save(s){ localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
 function state(){ return load(); }
+
+const USER_HANDLE_PREFIX = "att1:";
+// 認証結果のuserHandleからユーザーIDを取り出す（このデモで作成したPasskey以外はnull）
+function userIdFromHandle(handle){
+  if(!handle) return null;
+  const text = new TextDecoder().decode(handle);
+  return text.startsWith(USER_HANDLE_PREFIX) ? text.slice(USER_HANDLE_PREFIX.length) : null;
+}
 
 // 入口QR（attendance_mock.html）から開かれた場合は ?qr=トークン&exp=有効期限 が付く
 const QR_GRACE_MS = 15000; // 読み取り〜ページ表示までの遅延・端末間の時計ずれの許容
@@ -112,7 +120,9 @@ async function registerPasskey(){
     btn.disabled = true;
     out.innerHTML = "スマホのPasskey登録を開始しています…";
 
-    const userHandle = randomBytes(16);
+    // ユーザーIDをPasskeyのuserHandleに埋め込み、認証時にPasskeyからユーザーを特定できるようにする
+    const userHandle = new TextEncoder().encode(USER_HANDLE_PREFIX + userId);
+    if(userHandle.length > 64) throw new Error("ユーザーIDが長すぎます。");
     const challenge = randomBytes(32);
 
     const credential = await navigator.credentials.create({
@@ -161,8 +171,6 @@ async function authenticateAttendance(){
   const s = state();
   try{
     secureCheck();
-    if(!s.credentialId) throw new Error("登録済みPasskeyがありません。");
-
     if(qrScan && !qrScan.valid) throw new Error("QRの有効期限が切れています。入口のQRを読み直してください。");
 
     out.textContent = "スマホのPasskey認証を待っています…";
@@ -182,15 +190,19 @@ async function authenticateAttendance(){
 
     if(!assertion) throw new Error("認証結果がありません。");
 
+    // ブラウザの保存領域ではなくPasskey自体からユーザーを特定する
+    // （登録したブラウザとQRから開いたブラウザが違っても打刻できる）
     const credentialId = b64url(assertion.rawId);
-    if(credentialId !== s.credentialId){
-      throw new Error("登録済みCredentialと一致しません。");
+    const userId = userIdFromHandle(assertion.response.userHandle)
+      || (credentialId === s.credentialId ? s.userId : null);
+    if(!userId){
+      throw new Error("このPasskeyからユーザーを特定できません。①で端末を登録し直してください。");
     }
 
     const now = new Date();
     s.logs.unshift({
       at: now.toISOString(),
-      userId: s.userId,
+      userId,
       method: qrScan ? "入口QR(" + qrScan.office + ") + Passkey" : "Passkey / WebAuthn"
     });
     save(s);
@@ -199,8 +211,8 @@ async function authenticateAttendance(){
     out.innerHTML =
       '<span class="goodtxt">✓ 出社登録しました</span><br>' +
       '<b class="big">' + now.toLocaleTimeString("ja-JP") + '</b><br>' +
-      '<span class="small">ユーザーID：' + escapeHtml(s.userId) +
-      '<br>Credential ID照合：OK<br>※本番ではここでサーバーが署名・チャレンジを検証します。</span>';
+      '<span class="small">ユーザーID：' + escapeHtml(userId) +
+      '<br>Passkey認証：OK<br>※本番ではここでサーバーが署名・チャレンジを検証します。</span>';
   }catch(e){
     out.innerHTML = '<span class="errtxt">認証失敗：</span> ' + escapeHtml(e.message || String(e));
   }
@@ -210,7 +222,7 @@ function clearDemo(){
   localStorage.removeItem(STORAGE_KEY);
   render();
   document.getElementById("regStatus").textContent = "このページに保存していたデモ情報を削除しました。";
-  document.getElementById("authStatus").textContent = "未登録";
+  document.getElementById("authStatus").textContent = "「出社認証」を押すとPasskeyで認証します。";
 }
 
 function escapeHtml(s){
@@ -220,9 +232,7 @@ function escapeHtml(s){
 function render(){
   const s = state();
   const info = document.getElementById("credInfo");
-  const att = document.getElementById("attBtn");
   if(s.credentialId){
-    att.disabled = false;
     info.innerHTML =
       '<span class="goodtxt">✓ 登録済み</span><br>' +
       'ユーザーID：<b>' + escapeHtml(s.userId) + '</b><br>' +
@@ -230,8 +240,7 @@ function render(){
       'Credential ID：<span class="mono">' + escapeHtml(s.credentialId.slice(0,36)) + '…</span><br>' +
       '登録時刻：' + new Date(s.registeredAt).toLocaleString("ja-JP");
   }else{
-    att.disabled = true;
-    info.textContent = "なし";
+    info.textContent = "このブラウザには登録情報がありません（別のブラウザで登録したPasskeyでも打刻できます）";
   }
   const qrInfo = document.getElementById("qrInfo");
   if(qrScan){
