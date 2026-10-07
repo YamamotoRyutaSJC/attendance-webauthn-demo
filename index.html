@@ -48,7 +48,8 @@ table{width:100%;border-collapse:collapse;margin-top:10px}th,td{text-align:left;
 
   <section class="card">
     <h2>② 出社：ログイン不要</h2>
-    <div class="step"><span class="num">1</span><span>入口のQRを読む（このデモでは「出社認証」を押す）</span></div>
+    <div id="qrInfo" class="status" style="display:none"></div>
+    <div class="step"><span class="num">1</span><span>入口のQRを読む（QRなしの場合は「出社認証」を押す）</span></div>
     <div class="step"><span class="num">2</span><span>スマホのPasskeyを使って認証</span></div>
     <div class="step"><span class="num">3</span><span>Credential IDから紐付いたユーザーを特定</span></div>
     <div class="step"><span class="num">4</span><span>この端末の現在時刻を記録（本番はサーバー時刻）</span></div>
@@ -81,6 +82,18 @@ function randomBytes(n=32){ return crypto.getRandomValues(new Uint8Array(n)); }
 function load(){ return JSON.parse(localStorage.getItem(STORAGE_KEY)||"null") || {credentialId:null,userId:null,displayName:null,userHandle:null,logs:[]}; }
 function save(s){ localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
 function state(){ return load(); }
+
+// 入口QR（attendance_mock.html）から開かれた場合は ?qr=トークン&exp=有効期限 が付く
+const QR_GRACE_MS = 15000; // 読み取り〜ページ表示までの遅延・端末間の時計ずれの許容
+const qrScan = (() => {
+  const p = new URLSearchParams(location.search);
+  const token = p.get("qr");
+  if(!token) return null;
+  const exp = Number(p.get("exp")) || 0;
+  // 再読み込みで同じQRを使い回さないようURLから消す
+  history.replaceState(null, "", location.pathname);
+  return { token, office: token.split(":")[0], valid: Date.now() <= exp + QR_GRACE_MS };
+})();
 
 function secureCheck(){
   if(!window.isSecureContext) throw new Error("このページはHTTPS上で開いてください。file:// や通常のhttp://では実機WebAuthnを利用できません。");
@@ -150,9 +163,12 @@ async function authenticateAttendance(){
     secureCheck();
     if(!s.credentialId) throw new Error("登録済みPasskeyがありません。");
 
+    if(qrScan && !qrScan.valid) throw new Error("QRの有効期限が切れています。入口のQRを読み直してください。");
+
     out.textContent = "スマホのPasskey認証を待っています…";
 
-    const challenge = randomBytes(32);
+    // QR経由ならQRのトークンをチャレンジにする（本番はサーバーが発行・検証）
+    const challenge = qrScan ? new TextEncoder().encode(qrScan.token) : randomBytes(32);
 
     const assertion = await navigator.credentials.get({
       publicKey: {
@@ -175,7 +191,7 @@ async function authenticateAttendance(){
     s.logs.unshift({
       at: now.toISOString(),
       userId: s.userId,
-      method: "Passkey / WebAuthn"
+      method: qrScan ? "入口QR(" + qrScan.office + ") + Passkey" : "Passkey / WebAuthn"
     });
     save(s);
     render();
@@ -216,6 +232,14 @@ function render(){
   }else{
     att.disabled = true;
     info.textContent = "なし";
+  }
+  const qrInfo = document.getElementById("qrInfo");
+  if(qrScan){
+    qrInfo.style.display = "";
+    qrInfo.innerHTML = qrScan.valid
+      ? '<span class="goodtxt">✓ 入口QRを読み取りました（' + escapeHtml(qrScan.office) + '）</span><br>' +
+        '<span class="small">下の「出社認証」を押してPasskeyで認証してください。</span>'
+      : '<span class="warntxt">QRの有効期限切れです。</span><span class="small"> 入口のQRを読み直してください。</span>';
   }
   const tbody = document.getElementById("logs");
   tbody.innerHTML = s.logs.length ? s.logs.slice(0,20).map(x =>
