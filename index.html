@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>実機WebAuthn勤怠デモ</title>
+<style>
+:root{--bg:#08111f;--card:#111c2e;--line:#293b57;--text:#e7eef8;--muted:#9fb0c6;--blue:#3b82f6;--green:#16a34a;--red:#dc2626;--amber:#d97706}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#07101d,#101b2d);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:24px;margin:0 0 4px}.sub{color:var(--muted);font-size:13px;margin-bottom:18px}
+.card{background:rgba(17,28,46,.94);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0}
+h2{font-size:17px;margin:0 0 12px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input{width:100%;background:#08111f;color:var(--text);border:1px solid var(--line);padding:12px;border-radius:10px;font-size:16px;margin-bottom:9px}
+button{border:0;border-radius:10px;padding:11px 14px;color:#fff;background:#334155;font-weight:600}
+.primary{background:var(--blue)}.good{background:var(--green)}.danger{background:var(--red)}.amber{background:var(--amber)}
+button:disabled{opacity:.45}
+.status{background:#08111f;border:1px solid var(--line);border-radius:11px;padding:12px;line-height:1.55;margin-top:10px;font-size:14px}
+.big{font-size:38px;font-weight:700;letter-spacing:1px}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.goodtxt{color:#86efac}.warntxt{color:#fcd34d}.errtxt{color:#fca5a5}
+.step{display:flex;gap:9px;align-items:flex-start;margin:8px 0;color:#dbe7f4}.num{width:24px;height:24px;border-radius:50%;background:#334155;display:grid;place-items:center;font-size:12px;flex:none}
+.small{font-size:12px;color:var(--muted)}code{background:#0b1525;padding:2px 5px;border-radius:5px}
+table{width:100%;border-collapse:collapse;margin-top:10px}th,td{text-align:left;border-bottom:1px solid var(--line);padding:9px 5px;font-size:12px}th{color:var(--muted)}
+.notice{border-left:4px solid var(--amber);padding:10px;background:#1b1720;border-radius:8px;color:#fde7a8;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>実機 WebAuthn 勤怠デモ</h1>
+  <div class="sub">スマホOSのPasskey/WebAuthnを使って、初回だけ端末をユーザーIDへ紐付ける概念実証</div>
+
+  <div class="notice">
+    実機ではHTTPSが必要です。GitHub Pages等のHTTPS環境で公開してスマホから開いてください。
+    このデモはサーバー側の署名検証を省略した「実機UX確認用」です。本番利用不可です。
+  </div>
+
+  <section class="card">
+    <h2>① 初回登録：ユーザーIDとスマホを紐付け</h2>
+    <input id="userId" value="YAMAMOTO001" placeholder="ユーザーID">
+    <input id="displayName" value="山本" placeholder="表示名">
+    <div class="row">
+      <button class="primary" id="regBtn" onclick="registerPasskey()">このスマホを登録</button>
+      <button onclick="clearDemo()">デモデータ削除</button>
+    </div>
+    <div id="regStatus" class="status">未登録</div>
+  </section>
+
+  <section class="card">
+    <h2>② 出社：ログイン不要</h2>
+    <div class="step"><span class="num">1</span><span>入口のQRを読む（このデモでは「出社認証」を押す）</span></div>
+    <div class="step"><span class="num">2</span><span>スマホのPasskeyを使って認証</span></div>
+    <div class="step"><span class="num">3</span><span>Credential IDから紐付いたユーザーを特定</span></div>
+    <div class="step"><span class="num">4</span><span>この端末の現在時刻を記録（本番はサーバー時刻）</span></div>
+    <button class="good" id="attBtn" onclick="authenticateAttendance()">出社認証</button>
+    <div id="authStatus" class="status">先にスマホを登録してください。</div>
+  </section>
+
+  <section class="card">
+    <h2>③ 登録情報</h2>
+    <div id="credInfo" class="status">なし</div>
+  </section>
+
+  <section class="card">
+    <h2>④ 打刻履歴</h2>
+    <table><thead><tr><th>日時</th><th>ユーザーID</th><th>方法</th></tr></thead>
+    <tbody id="logs"><tr><td colspan="3" class="small">まだありません</td></tr></tbody></table>
+  </section>
+</div>
+
+<script>
+const STORAGE_KEY = "real-webauthn-attendance-demo-v1";
+
+function b64url(bytes){
+  const b = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
+  let s = "";
+  for(const x of b) s += String.fromCharCode(x);
+  return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+function randomBytes(n=32){ return crypto.getRandomValues(new Uint8Array(n)); }
+function load(){ return JSON.parse(localStorage.getItem(STORAGE_KEY)||"null") || {credentialId:null,userId:null,displayName:null,userHandle:null,logs:[]}; }
+function save(s){ localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
+function state(){ return load(); }
+
+function secureCheck(){
+  if(!window.isSecureContext) throw new Error("このページはHTTPS上で開いてください。file:// や通常のhttp://では実機WebAuthnを利用できません。");
+  if(!window.PublicKeyCredential) throw new Error("このブラウザはWebAuthn/Passkeyに対応していません。");
+}
+
+async function registerPasskey(){
+  const btn = document.getElementById("regBtn");
+  const out = document.getElementById("regStatus");
+  try{
+    secureCheck();
+    const userId = document.getElementById("userId").value.trim();
+    const displayName = document.getElementById("displayName").value.trim() || userId;
+    if(!userId) throw new Error("ユーザーIDを入力してください。");
+
+    btn.disabled = true;
+    out.innerHTML = "スマホのPasskey登録を開始しています…";
+
+    const userHandle = randomBytes(16);
+    const challenge = randomBytes(32);
+
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: "勤怠デモ", id: location.hostname },
+        user: {
+          id: userHandle,
+          name: userId,
+          displayName
+        },
+        pubKeyCredParams: [
+          {type:"public-key", alg:-7},
+          {type:"public-key", alg:-257}
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: "platform",
+          residentKey: "required",
+          userVerification: "preferred"
+        },
+        timeout: 60000,
+        attestation: "none"
+      }
+    });
+
+    const s = state();
+    s.credentialId = b64url(credential.rawId);
+    s.userId = userId;
+    s.displayName = displayName;
+    s.userHandle = b64url(userHandle);
+    s.registeredAt = new Date().toISOString();
+    save(s);
+    render();
+
+    out.innerHTML = '<span class="goodtxt">✓ このスマホにPasskeyを作成しました。</span><br>' +
+      '<span class="small">ここが「端末に秘密鍵を追加」に相当します。秘密鍵自体はWebページへ返りません。</span>';
+  }catch(e){
+    out.innerHTML = '<span class="errtxt">登録失敗：</span> ' + escapeHtml(e.message || String(e));
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function authenticateAttendance(){
+  const out = document.getElementById("authStatus");
+  const s = state();
+  try{
+    secureCheck();
+    if(!s.credentialId) throw new Error("登録済みPasskeyがありません。");
+
+    out.textContent = "スマホのPasskey認証を待っています…";
+
+    const challenge = randomBytes(32);
+
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        rpId: location.hostname,
+        userVerification: "preferred",
+        timeout: 30000,
+        allowCredentials: []
+      }
+    });
+
+    if(!assertion) throw new Error("認証結果がありません。");
+
+    const credentialId = b64url(assertion.rawId);
+    if(credentialId !== s.credentialId){
+      throw new Error("登録済みCredentialと一致しません。");
+    }
+
+    const now = new Date();
+    s.logs.unshift({
+      at: now.toISOString(),
+      userId: s.userId,
+      method: "Passkey / WebAuthn"
+    });
+    save(s);
+    render();
+
+    out.innerHTML =
+      '<span class="goodtxt">✓ 出社登録しました</span><br>' +
+      '<b class="big">' + now.toLocaleTimeString("ja-JP") + '</b><br>' +
+      '<span class="small">ユーザーID：' + escapeHtml(s.userId) +
+      '<br>Credential ID照合：OK<br>※本番ではここでサーバーが署名・チャレンジを検証します。</span>';
+  }catch(e){
+    out.innerHTML = '<span class="errtxt">認証失敗：</span> ' + escapeHtml(e.message || String(e));
+  }
+}
+
+function clearDemo(){
+  localStorage.removeItem(STORAGE_KEY);
+  render();
+  document.getElementById("regStatus").textContent = "このページに保存していたデモ情報を削除しました。";
+  document.getElementById("authStatus").textContent = "未登録";
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+}
+
+function render(){
+  const s = state();
+  const info = document.getElementById("credInfo");
+  const att = document.getElementById("attBtn");
+  if(s.credentialId){
+    att.disabled = false;
+    info.innerHTML =
+      '<span class="goodtxt">✓ 登録済み</span><br>' +
+      'ユーザーID：<b>' + escapeHtml(s.userId) + '</b><br>' +
+      '表示名：' + escapeHtml(s.displayName || "") + '<br>' +
+      'Credential ID：<span class="mono">' + escapeHtml(s.credentialId.slice(0,36)) + '…</span><br>' +
+      '登録時刻：' + new Date(s.registeredAt).toLocaleString("ja-JP");
+  }else{
+    att.disabled = true;
+    info.textContent = "なし";
+  }
+  const tbody = document.getElementById("logs");
+  tbody.innerHTML = s.logs.length ? s.logs.slice(0,20).map(x =>
+    `<tr><td class="mono">${new Date(x.at).toLocaleString("ja-JP")}</td><td>${escapeHtml(x.userId)}</td><td>${escapeHtml(x.method)}</td></tr>`
+  ).join("") : '<tr><td colspan="3" class="small">まだありません</td></tr>';
+}
+render();
+</script>
+</body>
+</html>
