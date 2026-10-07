@@ -1,0 +1,14 @@
+name = "attendance-webauthn-api"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Passkeyを登録・利用するページ（GitHub Pages）
+ALLOWED_ORIGIN = "https://yamamotoryutasjc.github.io"
+RP_ID = "yamamotoryutasjc.github.io"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "attendance-db"
+database_id = "41fba6e9-1f76-4b9a-b581-3acb7075608c"

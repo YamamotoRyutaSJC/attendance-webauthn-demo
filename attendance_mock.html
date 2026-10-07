@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>勤怠デジタル化 MOCK</title>
+<title>勤怠デジタル化 MOCK（入口画面）</title>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script src="config.js"></script>
 <style>
   :root { --bg:#0f172a; --panel:#111827; --card:#1f2937; --line:#334155; --text:#e5e7eb; --muted:#94a3b8; --good:#22c55e; --warn:#f59e0b; --accent:#60a5fa; }
   * { box-sizing:border-box; }
@@ -16,161 +17,123 @@
   .card { background:rgba(31,41,55,.92); border:1px solid var(--line); border-radius:16px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.2); }
   .card h2 { margin:0 0 14px; font-size:18px; }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:9px 0; }
-  label { width:110px; color:var(--muted); font-size:13px; }
-  input { flex:1; min-width:180px; background:#0b1220; border:1px solid var(--line); color:var(--text); padding:10px 12px; border-radius:9px; }
   button { border:0; border-radius:9px; padding:10px 14px; cursor:pointer; color:white; background:#334155; }
-  button.primary { background:#2563eb; }
-  button.good { background:#15803d; }
   button.warn { background:#b45309; }
-  button.danger { background:#991b1b; }
-  button:disabled { opacity:.45; cursor:not-allowed; }
   .status { padding:12px; background:#0b1220; border:1px solid var(--line); border-radius:10px; margin-top:12px; line-height:1.5; }
   .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
-  .pill { display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px; background:#334155; }
   .ok { color:#86efac; }
   .warntext { color:#fbbf24; }
   .qrbox { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:250px; border:1px dashed #475569; border-radius:14px; background:#0b1220; margin:12px 0; padding:10px; }
   /* 読み取り精度のため、白背景・クワイエットゾーン付きでピクセルをぼかさず描画 */
-  #qr { width:220px; height:220px; background:#fff; border-radius:6px; image-rendering:pixelated; }
+  #qr { width:260px; height:260px; background:#fff; border-radius:6px; image-rendering:pixelated; }
   .tiny { font-size:12px; color:var(--muted); word-break:break-all; text-align:center; }
   table { width:100%; border-collapse:collapse; }
   th,td { text-align:left; padding:9px 7px; border-bottom:1px solid var(--line); font-size:13px; }
   th { color:var(--muted); font-weight:600; }
+  tr.new td { background:rgba(34,197,94,.15); }
   .step { display:flex; align-items:center; gap:8px; padding:8px 10px; background:#0b1220; border:1px solid var(--line); border-radius:10px; margin:7px 0; }
-  .num { width:25px; height:25px; display:grid; place-items:center; border-radius:50%; background:#334155; font-size:12px; }
+  .num { width:25px; height:25px; display:grid; place-items:center; border-radius:50%; background:#334155; font-size:12px; flex:none; }
   .hero { grid-column:1/-1; border-color:#2563eb; }
   .bigtime { font-size:42px; font-weight:700; letter-spacing:1px; }
-  .result { font-size:18px; margin-top:10px; }
+  .result { font-size:26px; font-weight:700; }
   @media (max-width: 820px){ .grid{grid-template-columns:1fr;} .hero{grid-column:auto;} }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>勤怠デジタル化 MOCK</h1>
+  <h1>勤怠デジタル化 MOCK（入口画面）</h1>
   <div class="sub">「ログイン不要・登録済み端末＋動的QRで即時打刻」の概念実証</div>
 
   <div class="grid">
     <section class="card hero">
-      <h2>現在の状態</h2>
-      <div id="topStatus" class="status">まだ端末登録されていません。</div>
+      <h2>最新の打刻</h2>
+      <div id="topStatus" class="status">打刻を待っています…</div>
     </section>
 
     <section class="card">
-      <h2>1. 初回だけ端末をユーザーに紐付ける</h2>
-      <div class="row">
-        <label>ユーザーID</label>
-        <input id="userId" value="YAMAMOTO001" placeholder="例: YAMAMOTO001">
-      </div>
-      <div class="row">
-        <button class="primary" onclick="registerDevice()">端末を登録</button>
-        <button onclick="resetAll()">全データ初期化</button>
-      </div>
-      <div id="registerStatus" class="status">
-        このモックでは、ブラウザ内に「端末Credential」を作成し、ユーザーIDと紐付けます。
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>2. 入口側：動的QR</h2>
+      <h2>入口：動的QR</h2>
       <div class="qrbox">
         <div id="clock" class="bigtime mono">--:--:--</div>
         <canvas id="qr" aria-label="出社用QRコード"></canvas>
         <div class="mono tiny" id="qrToken">TOKEN: --------</div>
-        <div class="tiny" id="qrPayload"></div>
-        <div class="tiny">実運用では、この部分を入口PC/タブレットに表示</div>
       </div>
       <div class="row">
         <button class="warn" onclick="refreshQr()">QRを更新</button>
       </div>
-      <div id="qrStatus" class="status">10秒ごとにチャレンジが変わる想定です。</div>
+      <div id="qrStatus" class="status">10秒ごとにサーバーが新しいチャレンジを発行します。</div>
     </section>
 
     <section class="card">
-      <h2>3. 社員スマホ側（ログインなし）</h2>
-      <div class="step"><span class="num">1</span><span>入口のQRを読む（このボタンで模擬）</span></div>
-      <div class="step"><span class="num">2</span><span>登録済み端末Credentialでチャレンジに署名</span></div>
-      <div class="step"><span class="num">3</span><span>サーバーがユーザーIDを特定</span></div>
-      <div class="step"><span class="num">4</span><span>サーバー時刻で出社登録</span></div>
-      <div class="row">
-        <button id="clockInBtn" class="good" onclick="clockIn()" disabled>出社QRを読み取る（模擬）</button>
+      <h2>社員スマホ側（ログインなし）</h2>
+      <div class="step"><span class="num">1</span><span>スマホのカメラでQRを読む</span></div>
+      <div class="step"><span class="num">2</span><span>開いたページで「出社認証」→ Face ID等でPasskey認証</span></div>
+      <div class="step"><span class="num">3</span><span>サーバーが署名を検証し、Passkeyからユーザーを特定</span></div>
+      <div class="step"><span class="num">4</span><span>サーバー時刻で出社登録 → この画面に表示</span></div>
+      <div class="status tiny" style="text-align:left">
+        初回のみ、スマホで打刻ページの「① 初回登録」から端末を登録してください。
       </div>
-      <div id="authStatus" class="status">端末登録後に打刻できます。</div>
     </section>
 
-    <section class="card">
-      <h2>4. 勤怠ログ</h2>
+    <section class="card hero">
+      <h2>勤怠ログ（サーバー）</h2>
       <table>
-        <thead><tr><th>時刻</th><th>ユーザーID</th><th>方式</th><th>結果</th></tr></thead>
-        <tbody id="logBody"><tr><td colspan="4" class="tiny">まだ記録がありません。</td></tr></tbody>
+        <thead><tr><th>時刻</th><th>ユーザーID</th><th>表示名</th><th>拠点</th><th>方式</th></tr></thead>
+        <tbody id="logBody"><tr><td colspan="5" class="tiny">まだ記録がありません。</td></tr></tbody>
       </table>
     </section>
   </div>
 </div>
 
 <script>
-const KEY = "attendance-mock-v1";
-let state = JSON.parse(localStorage.getItem(KEY) || "null") || {
-  userId:null, credentialId:null, publicKey:null, deviceToken:null, registeredAt:null, logs:[]
-};
-let currentQr = { token:null, expiresAt:0 };
-
-function save(){ localStorage.setItem(KEY, JSON.stringify(state)); render(); }
-function randomId(n=18){ return [...crypto.getRandomValues(new Uint8Array(n))].map(x=>x.toString(16).padStart(2,"0")).join(""); }
-function b64(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))); }
-
-async function registerDevice(){
-  const uid = document.getElementById("userId").value.trim();
-  if(!uid){ alert("ユーザーIDを入力してください。"); return; }
-
-  // MOCK: 実装イメージに近づけるため端末内で鍵ペアを生成。
-  // 実運用ではWebAuthn/Passkeyを利用し、秘密鍵をWebアプリ側で直接扱わない設計を推奨。
-  const keyPair = await crypto.subtle.generateKey(
-    {name:"ECDSA", namedCurve:"P-256"},
-    false,
-    ["sign","verify"]
-  );
-  const spki = await crypto.subtle.exportKey("spki", keyPair.publicKey);
-
-  const deviceToken = randomId(16);
-  state.userId = uid;
-  state.credentialId = "cred_" + randomId(12);
-  state.publicKey = b64(spki);
-  state.deviceToken = deviceToken;
-  state.registeredAt = new Date().toISOString();
-
-  // Web Cryptoの秘密鍵はIndexedDBに格納
-  await putPrivateKey(keyPair.privateKey);
-  state.logs.unshift({
-    time: new Date().toLocaleString("ja-JP"),
-    userId: uid,
-    method: "DEVICE_REG",
-    result: "端末登録"
-  });
-  save();
-  document.getElementById("registerStatus").innerHTML =
-    '<span class="ok">登録完了。</span> ユーザーIDとこのブラウザの端末Credentialを紐付けました。';
-}
-
+const API_BASE = window.ATTENDANCE_API_BASE;
+const OFFICE = "OFFICE-A";
 // スマホで開く打刻ページ（Passkeyを登録したドメインと同じである必要がある）
 const ATTENDANCE_URL = "https://yamamotoryutasjc.github.io/attendance-webauthn-demo/index.html";
 
-// QRには必ずURLを埋め込む（文字列だけだとスマホのカメラが「利用できるデータなし」と判定する）
-function qrPayload(token, expiresAt){
-  const base = location.protocol === "https:" ? new URL("index.html", location.href) : new URL(ATTENDANCE_URL);
-  base.searchParams.set("qr", token);
-  base.searchParams.set("exp", String(expiresAt));
-  return base.toString();
+let currentQr = { token:null, expiresAt:0 };
+let refreshing = false;
+let lastLogId = null;
+
+async function api(path, body){
+  const res = await fetch(API_BASE + path, body === undefined ? {} : {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok) throw new Error(data.error || ("サーバーエラー (" + res.status + ")"));
+  return data;
 }
 
-function refreshQr(){
-  currentQr.token = "OFFICE-A:" + randomId(8);
-  currentQr.expiresAt = Date.now() + 10000;
-  const payload = qrPayload(currentQr.token, currentQr.expiresAt);
-  document.getElementById("qrToken").textContent = "TOKEN: " + currentQr.token;
-  document.getElementById("qrPayload").textContent = payload;
-  drawQr(payload);
-  document.getElementById("qrStatus").innerHTML =
-    '現在のチャレンジは <span class="mono">' + new Date(currentQr.expiresAt).toLocaleTimeString("ja-JP") + '</span> まで有効。';
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+}
+
+// QRには必ずURLを埋め込む（文字列だけだとスマホのカメラが「利用できるデータなし」と判定する）
+function qrPayload(token){
+  const url = new URL(ATTENDANCE_URL);
+  url.searchParams.set("qr", token);
+  return url.toString();
+}
+
+async function refreshQr(){
+  if(refreshing) return;
+  refreshing = true;
+  try{
+    const r = await api("/api/qr", { office: OFFICE });
+    // サーバーとPCの時計のずれを補正して、表示上の有効期限を合わせる
+    currentQr = { token: r.token, expiresAt: Date.now() + (r.expiresAt - r.serverTime) };
+    document.getElementById("qrToken").textContent = "TOKEN: " + r.office + ":" + r.token.slice(0,8) + "…";
+    drawQr(qrPayload(r.token));
+    document.getElementById("qrStatus").innerHTML =
+      '現在のチャレンジは <span class="mono">' + new Date(currentQr.expiresAt).toLocaleTimeString("ja-JP") + '</span> まで有効（サーバー発行）。';
+  }catch(e){
+    currentQr.expiresAt = Date.now() + 5000; // 5秒後に再試行
+    document.getElementById("qrStatus").innerHTML =
+      '<span class="warntext">QRを発行できません：</span> ' + escapeHtml(e.message);
+  }finally{
+    refreshing = false;
+  }
 }
 
 function drawQr(text){
@@ -188,7 +151,7 @@ function drawQr(text){
   qr.make();
   const count = qr.getModuleCount();
   const quiet = 4; // QR仕様のクワイエットゾーン（4セル）
-  const cell = Math.max(2, Math.floor(440 / (count + quiet * 2)));
+  const cell = Math.max(2, Math.floor(520 / (count + quiet * 2)));
   const size = (count + quiet * 2) * cell;
   canvas.width = canvas.height = size;
   ctx.fillStyle = "#fff";
@@ -201,121 +164,39 @@ function drawQr(text){
   }
 }
 
-async function clockIn(){
-  if(!state.userId){ alert("先に端末登録をしてください。"); return; }
-  if(Date.now() >= currentQr.expiresAt){
-    document.getElementById("authStatus").innerHTML = '<span class="warntext">QRチャレンジが期限切れです。</span> QRを更新してください。';
-    return;
-  }
-  const privateKey = await getPrivateKey();
-  if(!privateKey){
-    document.getElementById("authStatus").innerHTML = '<span class="warntext">端末Credentialが見つかりません。</span>';
-    return;
-  }
-
-  const challenge = new TextEncoder().encode(currentQr.token);
-  const signature = await crypto.subtle.sign({name:"ECDSA",hash:"SHA-256"}, privateKey, challenge);
-  const valid = await verifySignature(signature, challenge, state.publicKey);
-
-  if(!valid){
-    document.getElementById("authStatus").innerHTML = '<span class="warntext">署名検証失敗。</span> 出社登録しません。';
-    return;
-  }
-
-  const serverTime = new Date(); // MOCK: 実運用ではAPIサーバー時刻
-  const ts = serverTime.toLocaleString("ja-JP");
-  state.logs.unshift({
-    time: ts,
-    userId: state.userId,
-    method: "DYNAMIC_QR + DEVICE_AUTH",
-    result: "出社"
-  });
-  save();
-
-  document.getElementById("authStatus").innerHTML =
-    '<div class="result"><span class="ok">✓ 出社登録完了</span></div>' +
-    '<div class="tiny">ユーザーID: <b>' + state.userId + '</b><br>登録時刻: <b class="mono">' + ts + '</b><br>' +
-    '認証: 登録済み端末の署名検証OK</div>';
-
-  refreshQr();
-}
-
-async function verifySignature(signature, data, publicKeyB64){
+async function pollLogs(){
   try{
-    const raw = Uint8Array.from(atob(publicKeyB64), c => c.charCodeAt(0));
-    const key = await crypto.subtle.importKey(
-      "spki", raw.buffer, {name:"ECDSA",namedCurve:"P-256"}, false, ["verify"]
-    );
-    return await crypto.subtle.verify({name:"ECDSA",hash:"SHA-256"}, key, signature, data);
-  }catch(e){ return false; }
+    const { logs } = await api("/api/attendance");
+    const body = document.getElementById("logBody");
+    const prevId = lastLogId;
+    if(!logs.length){
+      body.innerHTML = '<tr><td colspan="5" class="tiny">まだ記録がありません。</td></tr>';
+    }else{
+      body.innerHTML = logs.map(x =>
+        `<tr class="${prevId !== null && x.id > prevId ? "new" : ""}"><td class="mono">${new Date(x.at).toLocaleString("ja-JP")}</td>` +
+        `<td>${escapeHtml(x.userId)}</td><td>${escapeHtml(x.displayName)}</td><td>${escapeHtml(x.office)}</td><td>動的QR + Passkey</td></tr>`
+      ).join("");
+      const latest = logs[0];
+      if(prevId !== null && latest.id > prevId){
+        document.getElementById("topStatus").innerHTML =
+          '<div class="result"><span class="ok">✓ 出社 ' + escapeHtml(latest.displayName || latest.userId) + ' さん</span></div>' +
+          '<div class="tiny" style="text-align:left">ユーザーID: <b>' + escapeHtml(latest.userId) + '</b> ／ 時刻: <b class="mono">' +
+          new Date(latest.at).toLocaleTimeString("ja-JP") + '</b> ／ 拠点: ' + escapeHtml(latest.office) + ' ／ サーバーで署名検証済み</div>';
+      }
+      lastLogId = latest.id;
+    }
+    if(lastLogId === null) lastLogId = 0;
+  }catch(e){
+    document.getElementById("topStatus").innerHTML = '<span class="warntext">サーバーに接続できません：</span> ' + escapeHtml(e.message);
+  }
 }
 
-function openDb(){
-  return new Promise((resolve,reject)=>{
-    const req=indexedDB.open("attendance-mock-db",1);
-    req.onupgradeneeded=()=>req.result.createObjectStore("keys");
-    req.onsuccess=()=>resolve(req.result);
-    req.onerror=()=>reject(req.error);
-  });
-}
-async function putPrivateKey(key){
-  const db=await openDb();
-  return new Promise((resolve,reject)=>{
-    const tx=db.transaction("keys","readwrite");
-    tx.objectStore("keys").put(key,"device-private-key");
-    tx.oncomplete=()=>resolve();
-    tx.onerror=()=>reject(tx.error);
-  });
-}
-async function getPrivateKey(){
-  try{
-    const db=await openDb();
-    return await new Promise((resolve,reject)=>{
-      const tx=db.transaction("keys","readonly");
-      const req=tx.objectStore("keys").get("device-private-key");
-      req.onsuccess=()=>resolve(req.result||null);
-      req.onerror=()=>reject(req.error);
-    });
-  }catch(e){return null;}
-}
-async function clearDb(){
-  try{
-    indexedDB.deleteDatabase("attendance-mock-db");
-  }catch(e){}
-}
-function resetAll(){
-  localStorage.removeItem(KEY);
-  clearDb();
-  location.reload();
-}
-function render(){
-  const top=document.getElementById("topStatus");
-  const btn=document.getElementById("clockInBtn");
-  if(state.userId){
-    top.innerHTML = '<span class="ok">端末登録済み</span> ' +
-      '<span class="pill">user_id: '+state.userId+'</span> ' +
-      '<span class="pill">credential: '+state.credentialId.slice(0,18)+'...</span>' +
-      '<br><span class="tiny">登録: '+new Date(state.registeredAt).toLocaleString("ja-JP")+'</span>';
-    btn.disabled=false;
-  }else{
-    top.textContent="まだ端末登録されていません。";
-    btn.disabled=true;
-  }
-  const body=document.getElementById("logBody");
-  if(!state.logs.length){
-    body.innerHTML='<tr><td colspan="4" class="tiny">まだ記録がありません。</td></tr>';
-  }else{
-    body.innerHTML=state.logs.slice(0,15).map(x=>
-      `<tr><td class="mono">${x.time}</td><td>${x.userId}</td><td>${x.method}</td><td>${x.result}</td></tr>`
-    ).join("");
-  }
-}
 setInterval(()=>{
   document.getElementById("clock").textContent = new Date().toLocaleTimeString("ja-JP");
-  if(!currentQr.token || Date.now() >= currentQr.expiresAt) refreshQr();
+  if(Date.now() >= currentQr.expiresAt) refreshQr();
 },1000);
-render();
-refreshQr();
+setInterval(pollLogs, 2000);
+pollLogs();
 </script>
 </body>
 </html>

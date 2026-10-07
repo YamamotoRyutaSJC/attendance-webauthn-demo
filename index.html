@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f172a">
 <title>実機WebAuthn勤怠デモ</title>
+<script src="https://cdn.jsdelivr.net/npm/@simplewebauthn/browser@14.0.0/dist/bundle/index.umd.min.js"></script>
+<script src="config.js"></script>
 <style>
 :root{--bg:#08111f;--card:#111c2e;--line:#293b57;--text:#e7eef8;--muted:#9fb0c6;--blue:#3b82f6;--green:#16a34a;--red:#dc2626;--amber:#d97706}
 *{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#07101d,#101b2d);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -23,6 +25,7 @@ button:disabled{opacity:.45}
 .small{font-size:12px;color:var(--muted)}code{background:#0b1525;padding:2px 5px;border-radius:5px}
 table{width:100%;border-collapse:collapse;margin-top:10px}th,td{text-align:left;border-bottom:1px solid var(--line);padding:9px 5px;font-size:12px}th{color:var(--muted)}
 .notice{border-left:4px solid var(--amber);padding:10px;background:#1b1720;border-radius:8px;color:#fde7a8;font-size:13px}
+#attBtn{width:100%;font-size:18px;padding:16px}
 </style>
 </head>
 <body>
@@ -31,9 +34,19 @@ table{width:100%;border-collapse:collapse;margin-top:10px}th,td{text-align:left;
   <div class="sub">スマホOSのPasskey/WebAuthnを使って、初回だけ端末をユーザーIDへ紐付ける概念実証</div>
 
   <div class="notice">
-    実機ではHTTPSが必要です。GitHub Pages等のHTTPS環境で公開してスマホから開いてください。
-    このデモはサーバー側の署名検証を省略した「実機UX確認用」です。本番利用不可です。
+    デモ用です。登録した公開鍵と打刻はデモ用サーバー（Cloudflare Workers）に保存され、入口画面（attendance_mock.html）に表示されます。
   </div>
+
+  <section class="card">
+    <h2>② 出社：ログイン不要</h2>
+    <div id="qrInfo" class="status">入口のQRコードをスマホのカメラで読み取ってください。</div>
+    <div class="step"><span class="num">1</span><span>入口のQRを読む（このページが開く）</span></div>
+    <div class="step"><span class="num">2</span><span>「出社認証」を押してPasskeyで認証</span></div>
+    <div class="step"><span class="num">3</span><span>サーバーが署名を検証し、Passkeyからユーザーを特定</span></div>
+    <div class="step"><span class="num">4</span><span>サーバー時刻で出社を記録 → 入口画面に表示</span></div>
+    <button class="good" id="attBtn" onclick="authenticateAttendance()" disabled>出社認証</button>
+    <div id="authStatus" class="status" style="display:none"></div>
+  </section>
 
   <section class="card">
     <h2>① 初回登録：ユーザーIDとスマホを紐付け</h2>
@@ -41,71 +54,43 @@ table{width:100%;border-collapse:collapse;margin-top:10px}th,td{text-align:left;
     <input id="displayName" value="山本" placeholder="表示名">
     <div class="row">
       <button class="primary" id="regBtn" onclick="registerPasskey()">このスマホを登録</button>
-      <button onclick="clearDemo()">デモデータ削除</button>
     </div>
-    <div id="regStatus" class="status">未登録</div>
+    <div id="regStatus" class="status">初回のみ必要です。登録済みならこの操作は不要です。</div>
   </section>
 
   <section class="card">
-    <h2>② 出社：ログイン不要</h2>
-    <div id="qrInfo" class="status" style="display:none"></div>
-    <div class="step"><span class="num">1</span><span>入口のQRを読む（QRなしの場合は「出社認証」を押す）</span></div>
-    <div class="step"><span class="num">2</span><span>スマホのPasskeyを使って認証</span></div>
-    <div class="step"><span class="num">3</span><span>Credential IDから紐付いたユーザーを特定</span></div>
-    <div class="step"><span class="num">4</span><span>この端末の現在時刻を記録（本番はサーバー時刻）</span></div>
-    <button class="good" id="attBtn" onclick="authenticateAttendance()">出社認証</button>
-    <div id="authStatus" class="status">「出社認証」を押すとPasskeyで認証します。（未登録の場合は先に①で登録）</div>
-  </section>
-
-  <section class="card">
-    <h2>③ 登録情報</h2>
+    <h2>③ このスマホで登録した情報</h2>
     <div id="credInfo" class="status">なし</div>
-  </section>
-
-  <section class="card">
-    <h2>④ 打刻履歴</h2>
-    <table><thead><tr><th>日時</th><th>ユーザーID</th><th>方法</th></tr></thead>
-    <tbody id="logs"><tr><td colspan="3" class="small">まだありません</td></tr></tbody></table>
   </section>
 </div>
 
 <script>
-const STORAGE_KEY = "real-webauthn-attendance-demo-v1";
+const { startRegistration, startAuthentication } = SimpleWebAuthnBrowser;
+const API_BASE = window.ATTENDANCE_API_BASE;
+const STORAGE_KEY = "real-webauthn-attendance-demo-v2";
 
-function b64url(bytes){
-  const b = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
-  let s = "";
-  for(const x of b) s += String.fromCharCode(x);
-  return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-}
-function randomBytes(n=32){ return crypto.getRandomValues(new Uint8Array(n)); }
-function load(){ return JSON.parse(localStorage.getItem(STORAGE_KEY)||"null") || {credentialId:null,userId:null,displayName:null,userHandle:null,logs:[]}; }
+function load(){ return JSON.parse(localStorage.getItem(STORAGE_KEY)||"null"); }
 function save(s){ localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
-function state(){ return load(); }
 
-const USER_HANDLE_PREFIX = "att1:";
-// 認証結果のuserHandleからユーザーIDを取り出す（このデモで作成したPasskey以外はnull）
-function userIdFromHandle(handle){
-  if(!handle) return null;
-  const text = new TextDecoder().decode(handle);
-  return text.startsWith(USER_HANDLE_PREFIX) ? text.slice(USER_HANDLE_PREFIX.length) : null;
+async function api(path, body){
+  const res = await fetch(API_BASE + path, body === undefined ? {} : {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok) throw new Error(data.error || ("サーバーエラー (" + res.status + ")"));
+  return data;
 }
-
-// 入口QR（attendance_mock.html）から開かれた場合は ?qr=トークン&exp=有効期限 が付く
-const QR_GRACE_MS = 15000; // 読み取り〜ページ表示までの遅延・端末間の時計ずれの許容
-const qrScan = (() => {
-  const p = new URLSearchParams(location.search);
-  const token = p.get("qr");
-  if(!token) return null;
-  const exp = Number(p.get("exp")) || 0;
-  // 再読み込みで同じQRを使い回さないようURLから消す
-  history.replaceState(null, "", location.pathname);
-  return { token, office: token.split(":")[0], valid: Date.now() <= exp + QR_GRACE_MS };
-})();
 
 function secureCheck(){
-  if(!window.isSecureContext) throw new Error("このページはHTTPS上で開いてください。file:// や通常のhttp://では実機WebAuthnを利用できません。");
+  if(!window.isSecureContext) throw new Error("このページはHTTPS上で開いてください。");
   if(!window.PublicKeyCredential) throw new Error("このブラウザはWebAuthn/Passkeyに対応していません。");
+}
+
+function errMessage(e){
+  if(e && e.name === "NotAllowedError") return "認証がキャンセルされたか、時間切れになりました。";
+  return (e && e.message) || String(e);
 }
 
 async function registerPasskey(){
@@ -118,111 +103,69 @@ async function registerPasskey(){
     if(!userId) throw new Error("ユーザーIDを入力してください。");
 
     btn.disabled = true;
-    out.innerHTML = "スマホのPasskey登録を開始しています…";
+    out.textContent = "スマホのPasskey登録を開始しています…";
 
-    // ユーザーIDをPasskeyのuserHandleに埋め込み、認証時にPasskeyからユーザーを特定できるようにする
-    const userHandle = new TextEncoder().encode(USER_HANDLE_PREFIX + userId);
-    if(userHandle.length > 64) throw new Error("ユーザーIDが長すぎます。");
-    const challenge = randomBytes(32);
+    const optionsJSON = await api("/api/register/options", { userId, displayName });
+    const response = await startRegistration({ optionsJSON });
+    const result = await api("/api/register/verify", { response });
 
-    const credential = await navigator.credentials.create({
-      publicKey: {
-        challenge,
-        rp: { name: "勤怠デモ", id: location.hostname },
-        user: {
-          id: userHandle,
-          name: userId,
-          displayName
-        },
-        pubKeyCredParams: [
-          {type:"public-key", alg:-7},
-          {type:"public-key", alg:-257}
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: "platform",
-          residentKey: "required",
-          userVerification: "preferred"
-        },
-        timeout: 60000,
-        attestation: "none"
-      }
-    });
-
-    const s = state();
-    s.credentialId = b64url(credential.rawId);
-    s.userId = userId;
-    s.displayName = displayName;
-    s.userHandle = b64url(userHandle);
-    s.registeredAt = new Date().toISOString();
-    save(s);
+    save({ ...result, registeredAt: new Date().toISOString() });
     render();
-
-    out.innerHTML = '<span class="goodtxt">✓ このスマホにPasskeyを作成しました。</span><br>' +
-      '<span class="small">ここが「端末に秘密鍵を追加」に相当します。秘密鍵自体はWebページへ返りません。</span>';
+    out.innerHTML = '<span class="goodtxt">✓ このスマホにPasskeyを作成し、公開鍵をサーバーに登録しました。</span><br>' +
+      '<span class="small">秘密鍵はスマホの外に出ません。サーバーには公開鍵とユーザーIDの紐付けだけが保存されます。</span>';
   }catch(e){
-    out.innerHTML = '<span class="errtxt">登録失敗：</span> ' + escapeHtml(e.message || String(e));
+    out.innerHTML = '<span class="errtxt">登録失敗：</span> ' + escapeHtml(errMessage(e));
   }finally{
     btn.disabled = false;
   }
 }
 
-async function authenticateAttendance(){
-  const out = document.getElementById("authStatus");
-  const s = state();
+// 入口QRから開かれた場合（?qr=トークン）、すぐにサーバーで1回限りの認証チャレンジに交換する
+let authOptions = null;
+async function prepareFromQr(){
+  const info = document.getElementById("qrInfo");
+  const token = new URLSearchParams(location.search).get("qr");
+  if(!token) return;
+  // 再読み込みで同じQRを使い回さないようURLから消す
+  history.replaceState(null, "", location.pathname);
+  info.textContent = "入口QRを確認しています…";
   try{
-    secureCheck();
-    if(qrScan && !qrScan.valid) throw new Error("QRの有効期限が切れています。入口のQRを読み直してください。");
-
-    out.textContent = "スマホのPasskey認証を待っています…";
-
-    // QR経由ならQRのトークンをチャレンジにする（本番はサーバーが発行・検証）
-    const challenge = qrScan ? new TextEncoder().encode(qrScan.token) : randomBytes(32);
-
-    const assertion = await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        rpId: location.hostname,
-        userVerification: "preferred",
-        timeout: 30000,
-        allowCredentials: []
-      }
-    });
-
-    if(!assertion) throw new Error("認証結果がありません。");
-
-    // ブラウザの保存領域ではなくPasskey自体からユーザーを特定する
-    // （登録したブラウザとQRから開いたブラウザが違っても打刻できる）
-    const credentialId = b64url(assertion.rawId);
-    const userId = userIdFromHandle(assertion.response.userHandle)
-      || (credentialId === s.credentialId ? s.userId : null);
-    if(!userId){
-      throw new Error("このPasskeyからユーザーを特定できません。①で端末を登録し直してください。");
-    }
-
-    const now = new Date();
-    s.logs.unshift({
-      at: now.toISOString(),
-      userId,
-      method: qrScan ? "入口QR(" + qrScan.office + ") + Passkey" : "Passkey / WebAuthn"
-    });
-    save(s);
-    render();
-
-    out.innerHTML =
-      '<span class="goodtxt">✓ 出社登録しました</span><br>' +
-      '<b class="big">' + now.toLocaleTimeString("ja-JP") + '</b><br>' +
-      '<span class="small">ユーザーID：' + escapeHtml(userId) +
-      '<br>Passkey認証：OK<br>※本番ではここでサーバーが署名・チャレンジを検証します。</span>';
+    const { options, office } = await api("/api/auth/options", { qr: token });
+    authOptions = options;
+    document.getElementById("attBtn").disabled = false;
+    info.innerHTML = '<span class="goodtxt">✓ 入口QRを確認しました（' + escapeHtml(office) + '）</span><br>' +
+      '<span class="small">「出社認証」を押してPasskeyで認証してください（2分以内）。</span>';
   }catch(e){
-    out.innerHTML = '<span class="errtxt">認証失敗：</span> ' + escapeHtml(e.message || String(e));
+    info.innerHTML = '<span class="warntxt">QRを確認できません：</span> ' + escapeHtml(errMessage(e)) +
+      '<br><span class="small">入口のQRを読み直してください。</span>';
   }
 }
 
-function clearDemo(){
-  localStorage.removeItem(STORAGE_KEY);
-  render();
-  document.getElementById("regStatus").textContent = "このページに保存していたデモ情報を削除しました。";
-  document.getElementById("authStatus").textContent = "「出社認証」を押すとPasskeyで認証します。";
+async function authenticateAttendance(){
+  const btn = document.getElementById("attBtn");
+  const out = document.getElementById("authStatus");
+  out.style.display = "";
+  try{
+    secureCheck();
+    if(!authOptions) throw new Error("入口のQRを読み取ってください。");
+    btn.disabled = true;
+    out.textContent = "スマホのPasskey認証を待っています…";
+
+    const response = await startAuthentication({ optionsJSON: authOptions });
+    out.textContent = "サーバーで検証しています…";
+    const r = await api("/api/auth/verify", { response });
+    authOptions = null; // チャレンジは1回限り
+
+    document.getElementById("qrInfo").textContent = "次回も入口のQRを読み取ってください。";
+    out.innerHTML =
+      '<span class="goodtxt">✓ 出社登録しました</span><br>' +
+      '<b class="big">' + new Date(r.at).toLocaleTimeString("ja-JP") + '</b><br>' +
+      '<span class="small">ユーザーID：' + escapeHtml(r.userId) + '（' + escapeHtml(r.displayName || "") + '）' +
+      '<br>拠点：' + escapeHtml(r.office) + '<br>サーバーで署名を検証済み・サーバー時刻で記録</span>';
+  }catch(e){
+    out.innerHTML = '<span class="errtxt">認証失敗：</span> ' + escapeHtml(errMessage(e));
+    btn.disabled = !authOptions;
+  }
 }
 
 function escapeHtml(s){
@@ -230,9 +173,9 @@ function escapeHtml(s){
 }
 
 function render(){
-  const s = state();
+  const s = load();
   const info = document.getElementById("credInfo");
-  if(s.credentialId){
+  if(s){
     info.innerHTML =
       '<span class="goodtxt">✓ 登録済み</span><br>' +
       'ユーザーID：<b>' + escapeHtml(s.userId) + '</b><br>' +
@@ -240,22 +183,11 @@ function render(){
       'Credential ID：<span class="mono">' + escapeHtml(s.credentialId.slice(0,36)) + '…</span><br>' +
       '登録時刻：' + new Date(s.registeredAt).toLocaleString("ja-JP");
   }else{
-    info.textContent = "このブラウザには登録情報がありません（別のブラウザで登録したPasskeyでも打刻できます）";
+    info.textContent = "このブラウザでの登録記録はありません（別のブラウザで登録したPasskeyでも打刻できます）";
   }
-  const qrInfo = document.getElementById("qrInfo");
-  if(qrScan){
-    qrInfo.style.display = "";
-    qrInfo.innerHTML = qrScan.valid
-      ? '<span class="goodtxt">✓ 入口QRを読み取りました（' + escapeHtml(qrScan.office) + '）</span><br>' +
-        '<span class="small">下の「出社認証」を押してPasskeyで認証してください。</span>'
-      : '<span class="warntxt">QRの有効期限切れです。</span><span class="small"> 入口のQRを読み直してください。</span>';
-  }
-  const tbody = document.getElementById("logs");
-  tbody.innerHTML = s.logs.length ? s.logs.slice(0,20).map(x =>
-    `<tr><td class="mono">${new Date(x.at).toLocaleString("ja-JP")}</td><td>${escapeHtml(x.userId)}</td><td>${escapeHtml(x.method)}</td></tr>`
-  ).join("") : '<tr><td colspan="3" class="small">まだありません</td></tr>';
 }
 render();
+prepareFromQr();
 </script>
 </body>
 </html>
