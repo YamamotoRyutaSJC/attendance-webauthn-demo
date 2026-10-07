@@ -3,86 +3,42 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>勤怠デジタル化 MOCK（入口画面）</title>
+<title>入口サイネージ｜勤怠デジタル化 MOCK</title>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script src="config.js"></script>
 <style>
-  :root { --bg:#0f172a; --panel:#111827; --card:#1f2937; --line:#334155; --text:#e5e7eb; --muted:#94a3b8; --good:#22c55e; --warn:#f59e0b; --accent:#60a5fa; }
+  :root { --line:#334155; --text:#e5e7eb; --muted:#94a3b8; }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:linear-gradient(180deg,#0b1220,#111827); color:var(--text); }
-  .wrap { max-width:1120px; margin:0 auto; padding:24px; }
-  h1 { margin:0 0 6px; font-size:28px; }
-  .sub { color:var(--muted); margin-bottom:22px; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
-  .card { background:rgba(31,41,55,.92); border:1px solid var(--line); border-radius:16px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.2); }
-  .card h2 { margin:0 0 14px; font-size:18px; }
-  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:9px 0; }
-  button { border:0; border-radius:9px; padding:10px 14px; cursor:pointer; color:white; background:#334155; }
-  button.warn { background:#b45309; }
-  .status { padding:12px; background:#0b1220; border:1px solid var(--line); border-radius:10px; margin-top:12px; line-height:1.5; }
+  html,body { height:100%; }
+  body { margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+         background:linear-gradient(180deg,#0b1220,#111827); color:var(--text);
+         display:flex; flex-direction:column; align-items:center; justify-content:center; gap:28px; padding:24px; }
   .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
-  .ok { color:#86efac; }
+  .clock { font-size:clamp(56px,11vw,132px); font-weight:700; letter-spacing:2px; line-height:1; }
+  .date { font-size:clamp(16px,2.6vw,26px); color:var(--muted); margin-top:10px; }
+  .qrbox { background:#fff; border-radius:20px; padding:18px; box-shadow:0 18px 50px rgba(0,0,0,.45); }
+  #qr { display:block; width:min(46vh,380px); height:min(46vh,380px); image-rendering:pixelated; }
+  .lead { font-size:clamp(15px,2.2vw,22px); color:var(--muted); text-align:center; }
+  .foot { position:fixed; bottom:14px; left:0; right:0; display:flex; justify-content:center; gap:18px;
+          font-size:12px; color:#64748b; }
+  .foot a { color:#64748b; }
   .warntext { color:#fbbf24; }
-  .qrbox { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:250px; border:1px dashed #475569; border-radius:14px; background:#0b1220; margin:12px 0; padding:10px; }
-  /* 読み取り精度のため、白背景・クワイエットゾーン付きでピクセルをぼかさず描画 */
-  #qr { width:260px; height:260px; background:#fff; border-radius:6px; image-rendering:pixelated; }
-  .tiny { font-size:12px; color:var(--muted); word-break:break-all; text-align:center; }
-  table { width:100%; border-collapse:collapse; }
-  th,td { text-align:left; padding:9px 7px; border-bottom:1px solid var(--line); font-size:13px; }
-  th { color:var(--muted); font-weight:600; }
-  tr.new td { background:rgba(34,197,94,.15); }
-  .step { display:flex; align-items:center; gap:8px; padding:8px 10px; background:#0b1220; border:1px solid var(--line); border-radius:10px; margin:7px 0; }
-  .num { width:25px; height:25px; display:grid; place-items:center; border-radius:50%; background:#334155; font-size:12px; flex:none; }
-  .hero { grid-column:1/-1; border-color:#2563eb; }
-  .bigtime { font-size:42px; font-weight:700; letter-spacing:1px; }
-  .result { font-size:26px; font-weight:700; }
-  @media (max-width: 820px){ .grid{grid-template-columns:1fr;} .hero{grid-column:auto;} }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>勤怠デジタル化 MOCK（入口画面）</h1>
-  <div class="sub">「ログイン不要・登録済み端末＋動的QRで即時打刻」の概念実証</div>
-
-  <div class="grid">
-    <section class="card hero">
-      <h2>最新の打刻</h2>
-      <div id="topStatus" class="status">打刻を待っています…</div>
-    </section>
-
-    <section class="card">
-      <h2>入口：動的QR</h2>
-      <div class="qrbox">
-        <div id="clock" class="bigtime mono">--:--:--</div>
-        <canvas id="qr" aria-label="出社用QRコード"></canvas>
-        <div class="mono tiny" id="qrToken">TOKEN: --------</div>
-      </div>
-      <div class="row">
-        <button class="warn" onclick="refreshQr()">QRを更新</button>
-      </div>
-      <div id="qrStatus" class="status">10秒ごとにサーバーが新しいチャレンジを発行します。</div>
-    </section>
-
-    <section class="card">
-      <h2>社員スマホ側（ログインなし）</h2>
-      <div class="step"><span class="num">1</span><span>スマホのカメラでQRを読む</span></div>
-      <div class="step"><span class="num">2</span><span>開いたページで「出社認証」→ Face ID等でPasskey認証</span></div>
-      <div class="step"><span class="num">3</span><span>サーバーが署名を検証し、Passkeyからユーザーを特定</span></div>
-      <div class="step"><span class="num">4</span><span>サーバー時刻で出社登録 → この画面に表示</span></div>
-      <div class="status tiny" style="text-align:left">
-        初回のみ、スマホで打刻ページの「① 初回登録」から端末を登録してください。
-      </div>
-    </section>
-
-    <section class="card hero">
-      <h2>勤怠ログ（サーバー）</h2>
-      <table>
-        <thead><tr><th>時刻</th><th>ユーザーID</th><th>表示名</th><th>拠点</th><th>方式</th></tr></thead>
-        <tbody id="logBody"><tr><td colspan="5" class="tiny">まだ記録がありません。</td></tr></tbody>
-      </table>
-    </section>
+  <div style="text-align:center">
+    <div id="clock" class="clock mono">--:--:--</div>
+    <div id="today" class="date"></div>
   </div>
-</div>
+
+  <div class="qrbox"><canvas id="qr" aria-label="出社用QRコード"></canvas></div>
+
+  <div class="lead">スマホのカメラでQRを読み取り、Passkeyで出社打刻</div>
+
+  <div class="foot">
+    <span id="qrStatus" class="mono"></span>
+    <a href="monitor.html">打刻モニターを開く →</a>
+  </div>
 
 <script>
 const API_BASE = window.ATTENDANCE_API_BASE;
@@ -92,7 +48,6 @@ const ATTENDANCE_URL = "https://yamamotoryutasjc.github.io/attendance-webauthn-d
 
 let currentQr = { token:null, expiresAt:0 };
 let refreshing = false;
-let lastLogId = null;
 
 async function api(path, body){
   const res = await fetch(API_BASE + path, body === undefined ? {} : {
@@ -123,10 +78,9 @@ async function refreshQr(){
     const r = await api("/api/qr", { office: OFFICE });
     // サーバーとPCの時計のずれを補正して、表示上の有効期限を合わせる
     currentQr = { token: r.token, expiresAt: Date.now() + (r.expiresAt - r.serverTime) };
-    document.getElementById("qrToken").textContent = "TOKEN: " + r.office + ":" + r.token.slice(0,8) + "…";
     drawQr(qrPayload(r.token));
-    document.getElementById("qrStatus").innerHTML =
-      '現在のチャレンジは <span class="mono">' + new Date(currentQr.expiresAt).toLocaleTimeString("ja-JP") + '</span> まで有効（サーバー発行）。';
+    document.getElementById("qrStatus").textContent =
+      r.office + " / " + new Date(currentQr.expiresAt).toLocaleTimeString("ja-JP") + " まで有効";
   }catch(e){
     currentQr.expiresAt = Date.now() + 5000; // 5秒後に再試行
     document.getElementById("qrStatus").innerHTML =
@@ -164,39 +118,16 @@ function drawQr(text){
   }
 }
 
-async function pollLogs(){
-  try{
-    const { logs } = await api("/api/attendance");
-    const body = document.getElementById("logBody");
-    const prevId = lastLogId;
-    if(!logs.length){
-      body.innerHTML = '<tr><td colspan="5" class="tiny">まだ記録がありません。</td></tr>';
-    }else{
-      body.innerHTML = logs.map(x =>
-        `<tr class="${prevId !== null && x.id > prevId ? "new" : ""}"><td class="mono">${new Date(x.at).toLocaleString("ja-JP")}</td>` +
-        `<td>${escapeHtml(x.userId)}</td><td>${escapeHtml(x.displayName)}</td><td>${escapeHtml(x.office)}</td><td>動的QR + Passkey</td></tr>`
-      ).join("");
-      const latest = logs[0];
-      if(prevId !== null && latest.id > prevId){
-        document.getElementById("topStatus").innerHTML =
-          '<div class="result"><span class="ok">✓ 出社 ' + escapeHtml(latest.displayName || latest.userId) + ' さん</span></div>' +
-          '<div class="tiny" style="text-align:left">ユーザーID: <b>' + escapeHtml(latest.userId) + '</b> ／ 時刻: <b class="mono">' +
-          new Date(latest.at).toLocaleTimeString("ja-JP") + '</b> ／ 拠点: ' + escapeHtml(latest.office) + ' ／ サーバーで署名検証済み</div>';
-      }
-      lastLogId = latest.id;
-    }
-    if(lastLogId === null) lastLogId = 0;
-  }catch(e){
-    document.getElementById("topStatus").innerHTML = '<span class="warntext">サーバーに接続できません：</span> ' + escapeHtml(e.message);
-  }
+function tick(){
+  const now = new Date();
+  document.getElementById("clock").textContent = now.toLocaleTimeString("ja-JP");
+  document.getElementById("today").textContent =
+    now.toLocaleDateString("ja-JP", { year:"numeric", month:"long", day:"numeric", weekday:"long" });
+  if(Date.now() >= currentQr.expiresAt) refreshQr();
 }
 
-setInterval(()=>{
-  document.getElementById("clock").textContent = new Date().toLocaleTimeString("ja-JP");
-  if(Date.now() >= currentQr.expiresAt) refreshQr();
-},1000);
-setInterval(pollLogs, 2000);
-pollLogs();
+setInterval(tick, 1000);
+tick();
 </script>
 </body>
 </html>

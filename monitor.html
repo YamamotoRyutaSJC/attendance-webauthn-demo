@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>打刻モニター｜勤怠デジタル化 MOCK</title>
+<script src="config.js"></script>
+<style>
+  :root { --line:#334155; --text:#e5e7eb; --muted:#94a3b8; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+         background:linear-gradient(180deg,#0b1220,#111827); color:var(--text); }
+  .wrap { max-width:960px; margin:0 auto; padding:24px; }
+  .head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+  h1 { margin:0; font-size:24px; }
+  .head a { color:var(--muted); font-size:13px; }
+  .card { background:rgba(31,41,55,.92); border:1px solid var(--line); border-radius:16px; padding:18px;
+          box-shadow:0 10px 30px rgba(0,0,0,.2); margin-bottom:18px; }
+  .card h2 { margin:0 0 14px; font-size:16px; color:var(--muted); font-weight:600; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .ok { color:#86efac; }
+  .warntext { color:#fbbf24; }
+  .tiny { font-size:12px; color:var(--muted); }
+  .latest { border-color:#2563eb; }
+  .who { font-size:clamp(28px,5vw,46px); font-weight:700; line-height:1.2; }
+  .meta { margin-top:10px; color:var(--muted); font-size:14px; }
+  .meta b { color:var(--text); }
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); font-size:14px; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  tr.new td { background:rgba(34,197,94,.15); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1>打刻モニター</h1>
+    <a href="attendance_mock.html">← 入口サイネージ（QR表示）へ</a>
+  </div>
+
+  <section class="card latest">
+    <h2>最新の打刻</h2>
+    <div id="latest" class="tiny">打刻を待っています…</div>
+  </section>
+
+  <section class="card">
+    <h2>勤怠ログ（サーバー）</h2>
+    <table>
+      <thead><tr><th>時刻</th><th>ユーザーID</th><th>表示名</th><th>拠点</th><th>方式</th></tr></thead>
+      <tbody id="logBody"><tr><td colspan="5" class="tiny">まだ記録がありません。</td></tr></tbody>
+    </table>
+  </section>
+</div>
+
+<script>
+const API_BASE = window.ATTENDANCE_API_BASE;
+let lastLogId = null;
+
+async function api(path){
+  const res = await fetch(API_BASE + path);
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok) throw new Error(data.error || ("サーバーエラー (" + res.status + ")"));
+  return data;
+}
+
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+}
+
+function renderLatest(x){
+  document.getElementById("latest").innerHTML =
+    '<div class="who"><span class="ok">✓ 出社</span> ' + escapeHtml(x.displayName || x.userId) + ' さん</div>' +
+    '<div class="meta">時刻 <b class="mono">' + new Date(x.at).toLocaleTimeString("ja-JP") + '</b>' +
+    ' ／ ユーザーID <b>' + escapeHtml(x.userId) + '</b>' +
+    ' ／ 拠点 <b>' + escapeHtml(x.office) + '</b>' +
+    ' ／ サーバーで署名検証済み</div>';
+}
+
+async function pollLogs(){
+  try{
+    const { logs } = await api("/api/attendance");
+    const body = document.getElementById("logBody");
+    const prevId = lastLogId;
+    if(!logs.length){
+      body.innerHTML = '<tr><td colspan="5" class="tiny">まだ記録がありません。</td></tr>';
+      lastLogId = 0;
+      return;
+    }
+    body.innerHTML = logs.map(x =>
+      `<tr class="${prevId !== null && x.id > prevId ? "new" : ""}"><td class="mono">${new Date(x.at).toLocaleString("ja-JP")}</td>` +
+      `<td>${escapeHtml(x.userId)}</td><td>${escapeHtml(x.displayName)}</td><td>${escapeHtml(x.office)}</td><td>動的QR + Passkey</td></tr>`
+    ).join("");
+    const latest = logs[0];
+    // 初回表示でも最新の打刻者が分かるようにする
+    if(prevId === null || latest.id > prevId) renderLatest(latest);
+    lastLogId = latest.id;
+  }catch(e){
+    document.getElementById("latest").innerHTML =
+      '<span class="warntext">サーバーに接続できません：</span> ' + escapeHtml(e.message);
+  }
+}
+
+setInterval(pollLogs, 2000);
+pollLogs();
+</script>
+</body>
+</html>
